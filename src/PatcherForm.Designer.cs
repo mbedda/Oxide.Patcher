@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Oxide.Patcher
 {
@@ -50,6 +50,14 @@ namespace Oxide.Patcher
             this.statuslabel = new System.Windows.Forms.ToolStripStatusLabel();
             this.splitter = new System.Windows.Forms.SplitContainer();
             this.objectview = new System.Windows.Forms.TreeView();
+            this.searchPanel = new System.Windows.Forms.Panel();
+            this.searchTextBox = new System.Windows.Forms.TextBox();
+            this.clearSearchButton = new System.Windows.Forms.Button();
+            this.resultsHeaderPanel = new System.Windows.Forms.Panel();
+            this.resultsCountLabel = new System.Windows.Forms.Label();
+            this.searchResultsList = new System.Windows.Forms.ListView();
+            this.columnHeaderName = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+            this.columnHeaderPath = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
             this.imagelist = new System.Windows.Forms.ImageList(this.components);
             this.tabview = new System.Windows.Forms.TabControl();
             this.tabviewcontextmenu = new System.Windows.Forms.ContextMenuStrip(this.components);
@@ -82,6 +90,8 @@ namespace Oxide.Patcher
             this.flagAllToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.unflagAllToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.mainmenu.SuspendLayout();
+            this.searchPanel.SuspendLayout();
+            this.resultsHeaderPanel.SuspendLayout();
             this.maintoolbar.SuspendLayout();
             this.mainstatusbar.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.splitter)).BeginInit();
@@ -259,19 +269,119 @@ namespace Oxide.Patcher
             this.splitter.Dock = System.Windows.Forms.DockStyle.Fill;
             this.splitter.Location = new System.Drawing.Point(0, 49);
             this.splitter.Name = "splitter";
-
-            //
-            // splitter.Panel1
-            //
-            this.splitter.Panel1.Controls.Add(this.objectview);
-
-            //
-            // splitter.Panel2
-            //
-            this.splitter.Panel2.Controls.Add(this.tabview);
             this.splitter.Size = new System.Drawing.Size(1264, 610);
             this.splitter.SplitterDistance = 268;
             this.splitter.TabIndex = 4;
+
+            // 
+            // splitter.Panel1
+            // 
+            this.splitter.Panel1.Controls.Add(this.objectview);
+            this.splitter.Panel1.Controls.Add(this.searchResultsList);
+            this.splitter.Panel1.Controls.Add(this.resultsHeaderPanel);
+            this.splitter.Panel1.Controls.Add(this.searchPanel);
+
+            // 
+            // splitter.Panel2
+            // 
+            this.splitter.Panel2.Controls.Add(this.tabview);
+
+            // 
+            // searchPanel
+            // 
+            this.searchPanel.Controls.Add(this.searchTextBox);
+            this.searchPanel.Controls.Add(this.clearSearchButton);
+            this.searchPanel.Dock = System.Windows.Forms.DockStyle.Top;
+            this.searchPanel.Location = new System.Drawing.Point(0, 0);
+            this.searchPanel.Name = "searchPanel";
+            this.searchPanel.Padding = new System.Windows.Forms.Padding(2);
+            this.searchPanel.Size = new System.Drawing.Size(268, 26);
+            this.searchPanel.TabIndex = 1;
+
+            // 
+            // searchTextBox
+            // 
+            this.searchTextBox.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.searchTextBox.Location = new System.Drawing.Point(2, 2);
+            this.searchTextBox.Name = "searchTextBox";
+            this.searchTextBox.Size = new System.Drawing.Size(242, 20);
+            this.searchTextBox.TabIndex = 0;
+            this.searchTextBox.TextChanged += new System.EventHandler(this.searchTextBox_TextChanged);
+            this.searchTextBox.KeyDown += new System.Windows.Forms.KeyEventHandler(this.searchTextBox_KeyDown);
+
+            // 
+            // clearSearchButton
+            // 
+            this.clearSearchButton.Dock = System.Windows.Forms.DockStyle.Right;
+            this.clearSearchButton.FlatAppearance.BorderSize = 0;
+            this.clearSearchButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.clearSearchButton.Location = new System.Drawing.Point(244, 2);
+            this.clearSearchButton.Name = "clearSearchButton";
+            this.clearSearchButton.Size = new System.Drawing.Size(22, 22);
+            this.clearSearchButton.TabIndex = 1;
+            this.clearSearchButton.Text = "✕";
+            this.clearSearchButton.UseVisualStyleBackColor = true;
+            this.clearSearchButton.Click += new System.EventHandler(this.clearSearchButton_Click);
+
+            // 
+            // resultsHeaderPanel
+            // 
+            this.resultsHeaderPanel.BackColor = System.Drawing.SystemColors.ControlLight;
+            this.resultsHeaderPanel.Controls.Add(this.resultsCountLabel);
+            this.resultsHeaderPanel.Dock = System.Windows.Forms.DockStyle.Top;
+            this.resultsHeaderPanel.Location = new System.Drawing.Point(0, 26);
+            this.resultsHeaderPanel.Name = "resultsHeaderPanel";
+            this.resultsHeaderPanel.Size = new System.Drawing.Size(268, 18);
+            this.resultsHeaderPanel.TabIndex = 2;
+            this.resultsHeaderPanel.Visible = false;
+
+            // 
+            // resultsCountLabel
+            // 
+            this.resultsCountLabel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.resultsCountLabel.Font = new System.Drawing.Font("Segoe UI", 7.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.resultsCountLabel.ForeColor = System.Drawing.SystemColors.ControlDarkDark;
+            this.resultsCountLabel.Location = new System.Drawing.Point(0, 0);
+            this.resultsCountLabel.Name = "resultsCountLabel";
+            this.resultsCountLabel.Padding = new System.Windows.Forms.Padding(4, 0, 0, 0);
+            this.resultsCountLabel.Size = new System.Drawing.Size(268, 18);
+            this.resultsCountLabel.TabIndex = 0;
+            this.resultsCountLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+
+            // 
+            // searchResultsList
+            // 
+            this.searchResultsList.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
+            this.columnHeaderName,
+            this.columnHeaderPath});
+            this.searchResultsList.Dock = System.Windows.Forms.DockStyle.Top;
+            this.searchResultsList.FullRowSelect = true;
+            this.searchResultsList.HeaderStyle = System.Windows.Forms.ColumnHeaderStyle.Nonclickable;
+            this.searchResultsList.HideSelection = false;
+            this.searchResultsList.Location = new System.Drawing.Point(0, 44);
+            this.searchResultsList.MultiSelect = false;
+            this.searchResultsList.Name = "searchResultsList";
+            this.searchResultsList.Size = new System.Drawing.Size(268, 180);
+            this.searchResultsList.SmallImageList = this.imagelist;
+            this.searchResultsList.TabIndex = 3;
+            this.searchResultsList.UseCompatibleStateImageBehavior = false;
+            this.searchResultsList.View = System.Windows.Forms.View.Details;
+            this.searchResultsList.Visible = false;
+            this.searchResultsList.DoubleClick += new System.EventHandler(this.searchResultsList_DoubleClick);
+            this.searchResultsList.KeyDown += new System.Windows.Forms.KeyEventHandler(this.searchResultsList_KeyDown);
+            this.searchResultsList.Resize += new System.EventHandler(this.searchResultsList_Resize);
+
+            // 
+            // columnHeaderName
+            // 
+            this.columnHeaderName.Text = "Name";
+            this.columnHeaderName.Width = 120;
+
+            // 
+            // columnHeaderPath
+            // 
+            this.columnHeaderPath.Text = "Path";
+            this.columnHeaderPath.Width = 140;
 
             //
             // objectview
@@ -593,6 +703,9 @@ namespace Oxide.Patcher
             this.Text = "Oxide Patcher - Version {0}";
             this.mainmenu.ResumeLayout(false);
             this.mainmenu.PerformLayout();
+            this.searchPanel.ResumeLayout(false);
+            this.searchPanel.PerformLayout();
+            this.resultsHeaderPanel.ResumeLayout(false);
             this.maintoolbar.ResumeLayout(false);
             this.maintoolbar.PerformLayout();
             this.mainstatusbar.ResumeLayout(false);
@@ -625,6 +738,14 @@ namespace Oxide.Patcher
         private System.Windows.Forms.ToolStrip maintoolbar;
         private System.Windows.Forms.StatusStrip mainstatusbar;
         private System.Windows.Forms.SplitContainer splitter;
+        private System.Windows.Forms.Panel searchPanel;
+        private System.Windows.Forms.TextBox searchTextBox;
+        private System.Windows.Forms.Button clearSearchButton;
+        private System.Windows.Forms.Panel resultsHeaderPanel;
+        private System.Windows.Forms.Label resultsCountLabel;
+        private System.Windows.Forms.ListView searchResultsList;
+        private System.Windows.Forms.ColumnHeader columnHeaderName;
+        private System.Windows.Forms.ColumnHeader columnHeaderPath;
         private System.Windows.Forms.TreeView objectview;
         private System.Windows.Forms.TabControl tabview;
         private System.Windows.Forms.ToolStripMenuItem newproject;
