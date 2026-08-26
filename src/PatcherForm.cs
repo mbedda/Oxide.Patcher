@@ -75,6 +75,7 @@ namespace Oxide.Patcher
         public PatcherForm()
         {
             InitializeComponent();
+            InitializeSearch();
             string title = string.Format(Text, version);
             Text = title.Slice(0, title.LastIndexOf("."));
             MainForm = this;
@@ -83,6 +84,7 @@ namespace Oxide.Patcher
         public PatcherForm(string filename)
         {
             InitializeComponent();
+            InitializeSearch();
             string title = string.Format(Text, version);
             Text = title.Slice(0, title.LastIndexOf("."));
             if (File.Exists(filename))
@@ -1529,6 +1531,9 @@ namespace Oxide.Patcher
         /// </summary>
         public void CloseProject()
         {
+            // Clear search
+            ClearAndCloseSearch();
+
             // Clear the tree and tabs
             objectview.Nodes.Clear();
             tabview.Controls.Clear();
@@ -2114,6 +2119,413 @@ namespace Oxide.Patcher
         }
 
         #endregion Code Interface
+
+        #region Tree Search
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
+        private const int EM_SETCUEBANNER = 0x1501;
+        private const int MaxSearchResults = 50;
+        private Timer searchDebounceTimer;
+
+        private void InitializeSearch()
+        {
+            searchDebounceTimer = new Timer { Interval = 150 };
+            searchDebounceTimer.Tick += (s, e) =>
+            {
+                searchDebounceTimer.Stop();
+                PerformSearch(searchTextBox.Text);
+            };
+
+            SetCueBanner(searchTextBox, "Search tree (Ctrl+F)...");
+        }
+
+        private void SetCueBanner(TextBox textBox, string cueText)
+        {
+            if (textBox.IsHandleCreated)
+            {
+                SendMessage(textBox.Handle, EM_SETCUEBANNER, (IntPtr)1, cueText);
+            }
+            else
+            {
+                textBox.HandleCreated += (s, e) => SendMessage(textBox.Handle, EM_SETCUEBANNER, (IntPtr)1, cueText);
+            }
+        }
+
+        public void FocusSearchBox()
+        {
+            searchTextBox.Focus();
+            searchTextBox.SelectAll();
+        }
+
+        public void ClearAndCloseSearch()
+        {
+            if (searchDebounceTimer != null)
+            {
+                searchDebounceTimer.Stop();
+            }
+            searchTextBox.Text = string.Empty;
+            searchResultsList.Items.Clear();
+            searchResultsList.Visible = false;
+            resultsHeaderPanel.Visible = false;
+            if (objectview != null && objectview.CanFocus)
+            {
+                objectview.Focus();
+            }
+        }
+
+        private void searchTextBox_TextChanged(object sender, EventArgs e)
+        {
+            searchDebounceTimer.Stop();
+            if (string.IsNullOrWhiteSpace(searchTextBox.Text))
+            {
+                PerformSearch(string.Empty);
+            }
+            else
+            {
+                searchDebounceTimer.Start();
+            }
+        }
+
+        private void searchTextBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Down)
+            {
+                if (searchResultsList.Visible && searchResultsList.Items.Count > 0)
+                {
+                    searchResultsList.Focus();
+                    if (searchResultsList.SelectedIndices.Count == 0)
+                    {
+                        searchResultsList.Items[0].Selected = true;
+                        searchResultsList.Items[0].Focused = true;
+                    }
+                    e.Handled = true;
+                }
+            }
+            else if (e.KeyCode == Keys.Enter)
+            {
+                if (searchResultsList.Visible && searchResultsList.Items.Count > 0)
+                {
+                    ListViewItem item = searchResultsList.SelectedItems.Count > 0
+                        ? searchResultsList.SelectedItems[0]
+                        : searchResultsList.Items[0];
+                    SelectNodeInTree(item.Tag as TreeNode);
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                }
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                ClearAndCloseSearch();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+        }
+
+        private void clearSearchButton_Click(object sender, EventArgs e)
+        {
+            ClearAndCloseSearch();
+        }
+
+        private void searchResultsList_DoubleClick(object sender, EventArgs e)
+        {
+            if (searchResultsList.SelectedItems.Count > 0)
+            {
+                SelectNodeInTree(searchResultsList.SelectedItems[0].Tag as TreeNode);
+            }
+        }
+
+        private void searchResultsList_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                if (searchResultsList.SelectedItems.Count > 0)
+                {
+                    SelectNodeInTree(searchResultsList.SelectedItems[0].Tag as TreeNode);
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                }
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                ClearAndCloseSearch();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+            else if (e.KeyCode == Keys.Up && searchResultsList.SelectedIndices.Count > 0 && searchResultsList.SelectedIndices[0] == 0)
+            {
+                searchTextBox.Focus();
+                e.Handled = true;
+            }
+        }
+
+        private void searchResultsList_Resize(object sender, EventArgs e)
+        {
+            AutoSizeSearchResultsColumns();
+        }
+
+        private void AutoSizeSearchResultsColumns()
+        {
+            if (searchResultsList.Columns.Count >= 2)
+            {
+                int totalWidth = searchResultsList.ClientSize.Width;
+                if (totalWidth > 50)
+                {
+                    searchResultsList.Columns[0].Width = (int)(totalWidth * 0.45);
+                    searchResultsList.Columns[1].Width = totalWidth - searchResultsList.Columns[0].Width - 4;
+                }
+            }
+        }
+
+        private sealed class SearchResultMatch
+        {
+            public TreeNode Node { get; }
+            public int Score { get; }
+
+            public SearchResultMatch(TreeNode node, int score)
+            {
+                Node = node;
+                Score = score;
+            }
+        }
+
+        private void PerformSearch(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                searchResultsList.BeginUpdate();
+                searchResultsList.Items.Clear();
+                searchResultsList.EndUpdate();
+                searchResultsList.Visible = false;
+                resultsHeaderPanel.Visible = false;
+                return;
+            }
+
+            query = query.Trim();
+            List<SearchResultMatch> allMatches = new List<SearchResultMatch>();
+            SearchNodesRecursive(objectview.Nodes, query, allMatches);
+
+            var topMatches = allMatches
+                .OrderByDescending(m => m.Score)
+                .ThenBy(m => m.Node.Text.Length)
+                .ThenBy(m => m.Node.Text)
+                .Take(MaxSearchResults)
+                .ToList();
+
+            searchResultsList.BeginUpdate();
+            searchResultsList.Items.Clear();
+
+            foreach (SearchResultMatch match in topMatches)
+            {
+                TreeNode node = match.Node;
+                ListViewItem item = new ListViewItem(node.Text)
+                {
+                    Tag = node
+                };
+                if (!string.IsNullOrEmpty(node.ImageKey))
+                {
+                    item.ImageKey = node.ImageKey;
+                }
+                else if (node.ImageIndex >= 0)
+                {
+                    item.ImageIndex = node.ImageIndex;
+                }
+
+                item.SubItems.Add(GetNodePath(node));
+                searchResultsList.Items.Add(item);
+            }
+
+            searchResultsList.EndUpdate();
+
+            if (topMatches.Count > 0)
+            {
+                resultsCountLabel.Text = allMatches.Count > MaxSearchResults
+                    ? $"Showing first {MaxSearchResults} of {allMatches.Count} matches"
+                    : $"{topMatches.Count} match{(topMatches.Count == 1 ? "" : "es")}";
+                resultsHeaderPanel.Visible = true;
+                searchResultsList.Visible = true;
+                searchResultsList.Height = Math.Min(200, Math.Max(70, topMatches.Count * 18 + 25));
+                AutoSizeSearchResultsColumns();
+            }
+            else
+            {
+                resultsCountLabel.Text = "No matches found";
+                resultsHeaderPanel.Visible = true;
+                searchResultsList.Visible = false;
+            }
+        }
+
+        private void SearchNodesRecursive(TreeNodeCollection nodes, string query, List<SearchResultMatch> results)
+        {
+            foreach (TreeNode node in nodes)
+            {
+                int score = GetMatchScore(node, query);
+                if (score > 0)
+                {
+                    results.Add(new SearchResultMatch(node, score));
+                }
+
+                if (node.Nodes.Count > 0)
+                {
+                    SearchNodesRecursive(node.Nodes, query, results);
+                }
+            }
+        }
+
+        private int GetMatchScore(TreeNode node, string query)
+        {
+            int score = 0;
+            string text = node.Text;
+            TypeDefinition typeDef = node.Tag as TypeDefinition;
+            Hook hook = node.Tag as Hook;
+            Modifier modifier = node.Tag as Modifier;
+            Field field = node.Tag as Field;
+
+            // Direct node text matching
+            if (!string.IsNullOrEmpty(text))
+            {
+                if (string.Equals(text, query, StringComparison.OrdinalIgnoreCase))
+                {
+                    score = Math.Max(score, 1000);
+                }
+                else if (text.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                {
+                    score = Math.Max(score, 500 + Math.Max(0, 50 - text.Length));
+                }
+                else if (text.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    score = Math.Max(score, 300 + Math.Max(0, 50 - text.Length));
+                }
+            }
+
+            // TypeDefinition scoring: prioritize assembly classes/interfaces
+            if (typeDef != null)
+            {
+                if (string.Equals(typeDef.Name, query, StringComparison.OrdinalIgnoreCase))
+                {
+                    score = Math.Max(score, 1200); // Highest priority for exact class/type name
+                }
+                else if (typeDef.Name != null && typeDef.Name.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                {
+                    score = Math.Max(score, 600 + Math.Max(0, 50 - typeDef.Name.Length));
+                }
+                else if (typeDef.Name != null && typeDef.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    score = Math.Max(score, 350 + Math.Max(0, 50 - typeDef.Name.Length));
+                }
+                else if (!string.IsNullOrEmpty(typeDef.FullName) && typeDef.FullName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    score = Math.Max(score, 250);
+                }
+            }
+            // Hook scoring
+            else if (hook != null)
+            {
+                if (!string.IsNullOrEmpty(hook.HookName))
+                {
+                    if (string.Equals(hook.HookName, query, StringComparison.OrdinalIgnoreCase))
+                    {
+                        score = Math.Max(score, 900);
+                    }
+                    else if (hook.HookName.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                    {
+                        score = Math.Max(score, 450);
+                    }
+                    else if (hook.HookName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        score = Math.Max(score, 280);
+                    }
+                }
+
+                // Low score for target TypeName so it doesn't crowd out actual type/class matches
+                if (!string.IsNullOrEmpty(hook.TypeName) && hook.TypeName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    score = Math.Max(score, 40);
+                }
+            }
+            // Modifier scoring
+            else if (modifier != null)
+            {
+                if (!string.IsNullOrEmpty(modifier.TypeName) && modifier.TypeName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    score = Math.Max(score, 50);
+                }
+            }
+            // Field scoring
+            else if (field != null)
+            {
+                if (!string.IsNullOrEmpty(field.TypeName) && field.TypeName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    score = Math.Max(score, 50);
+                }
+            }
+            else if (node.Tag is NodeAssemblyData assemblyData)
+            {
+                if (!string.IsNullOrEmpty(assemblyData.AssemblyName) && assemblyData.AssemblyName.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    score = Math.Max(score, 200);
+                }
+            }
+
+            return score;
+        }
+
+        private string GetNodePath(TreeNode node)
+        {
+            if (node == null || node.Parent == null)
+            {
+                return string.Empty;
+            }
+
+            List<string> parts = new List<string>();
+            TreeNode curr = node.Parent;
+            while (curr != null)
+            {
+                parts.Add(curr.Text);
+                curr = curr.Parent;
+            }
+            parts.Reverse();
+            return string.Join(" > ", parts);
+        }
+
+        public void SelectNodeInTree(TreeNode targetNode)
+        {
+            if (targetNode == null || targetNode.TreeView == null)
+            {
+                return;
+            }
+
+            objectview.BeginUpdate();
+            try
+            {
+                targetNode.EnsureVisible();
+                objectview.SelectedNode = targetNode;
+            }
+            finally
+            {
+                objectview.EndUpdate();
+            }
+
+            objectview.Focus();
+            statuslabel.Text = $"Selected '{targetNode.Text}' in tree";
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Control | Keys.F))
+            {
+                FocusSearchBox();
+                return true;
+            }
+            if (keyData == Keys.Escape && (searchTextBox.Focused || searchResultsList.Focused))
+            {
+                ClearAndCloseSearch();
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        #endregion
     }
 
     public class DragDropHelper
